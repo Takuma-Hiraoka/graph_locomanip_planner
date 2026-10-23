@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>graph_locomanip_planner_sample</name>
+  <version>0.0.0</version>
+  <description>Unitree G1 loco-manipulation planning sample.</description>
+  <maintainer email="t-hiraoka@jsk.imi.i.u-tokyo.ac.jp">Takuma-Hiraoka</maintainer>
+  <license>BSD</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>ament_index_cpp</depend>
+  <depend>graph_locomanip_planner</depend>
+  <depend>ik_constraint</depend>
+  <depend>ik_constraint_esdf</depend>
+  <depend>ik_constraint_vclip</depend>
+  <depend>mujoco_esdf</depend>
+  <depend>mujoco_viewer</depend>
+  <depend>pinocchio</depend>
+  <depend>pinocchio_model_builder</depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

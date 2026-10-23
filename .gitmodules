@@ -1,0 +1,3 @@
+[submodule "graph_locomanip_planner_sample/unitree_ros"]
+	path = graph_locomanip_planner_sample/unitree_ros
+	url = https://github.com/unitreerobotics/unitree_ros.git
