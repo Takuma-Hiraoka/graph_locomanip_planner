@@ -4,6 +4,7 @@
 #include <ik_constraint_esdf/EsdfCollisionConstraint.h>
 #include <pinocchio/algorithm/kinematics.hpp>
 #include <algorithm>
+#include <cmath>
 #include <stdexcept>
 
 namespace graph_locomanip_planner {
@@ -31,6 +32,17 @@ namespace graph_locomanip_planner {
     return data[i]->oMi[getJointId(candidate,*models[i])] * getJointLocalPose(candidate,*models[i]);
   }
   namespace {
+    void fixContactYaw(Contact& contact,
+      const std::vector<std::shared_ptr<pinocchio::Model> >& models,
+      const std::vector<std::shared_ptr<pinocchio::Data> >& data) {
+      if(contact.yawFixed) return;
+      const ContactCandidate& a = contact.c1.isStatic ? contact.c2 : contact.c1;
+      const ContactCandidate& b = contact.c1.isStatic ? contact.c1 : contact.c2;
+      const Eigen::Matrix3d relativeRotation = getWorldPose(b,models,data).rotation().transpose()*
+        getWorldPose(a,models,data).rotation();
+      contact.yaw = std::atan2(relativeRotation(1,0),relativeRotation(0,0));
+      contact.yawFixed = true;
+    }
 
     bool matches(const ContactCandidate& candidate, const std::shared_ptr<const pinocchio::Model>& model,
       pinocchio::JointIndex joint) {
@@ -54,7 +66,8 @@ namespace graph_locomanip_planner {
         } else if(matchesPair(contact,collision)) return true;
       }
       if(state != IKState::ATTACH_FIXED && state != IKState::DETACH_FIXED) return false;
-      if(distanceField) return matches(move.c1,collision->getAModel(),collision->getAJointId()) || matches(move.c2,collision->getAModel(),collision->getAJointId());
+      if(distanceField) return (move.c1.isStatic || move.c2.isStatic) &&
+        (matches(move.c1,collision->getAModel(),collision->getAJointId()) || matches(move.c2,collision->getAModel(),collision->getAJointId()));
       return matchesPair(move,collision);
     }
     std::shared_ptr<ik_constraint::PositionConstraint> makePosition(const Contact& contact,
@@ -71,13 +84,15 @@ namespace graph_locomanip_planner {
       const pinocchio::Model& bModel = b.isStatic ? *models[ai] : *models[getModelIndex(b,models)];
       result->setBJointId(getJointId(b,bModel));
       pinocchio::SE3 target = getJointLocalPose(b,bModel);
+      const Eigen::Matrix3d evalRotation = target.rotation();
       target.translation() += clearance * target.rotation().col(2);
+      if(contact.yawFixed) target.rotation() *= Eigen::AngleAxisd(contact.yaw,Eigen::Vector3d::UnitZ()).toRotationMatrix();
       result->setBLocalPose(target); result->setPrecision(param.contactPrecision);
       result->setEvalModel(result->getBModel());
       result->setEvalJointId(result->getBJointId());
-      result->setEvalLocalR(target.rotation());
+      result->setEvalLocalR(evalRotation);
       Eigen::Matrix<double,6,1> weight = a.weight.cwiseMin(b.weight);
-      weight[5] = 0.0;
+      weight[5] = contact.yawFixed ? 1.0 : 0.0;
       result->setWeight(weight);
       result->setMaxError(Eigen::Matrix<double,6,1>::Constant(0.03));
       return result;
@@ -88,7 +103,18 @@ namespace graph_locomanip_planner {
     const IKState& state, std::vector<Eigen::VectorXd>& configurations, const GLMPParam& parameters) {
     const std::vector<std::shared_ptr<pinocchio::Model> > models = parameters.getModels();
     const std::vector<Eigen::VectorXd> initial = configurations;
+    std::shared_ptr<ik_constraint_sp::SPConstraint> balance = this->createSPConstraint(supportState,parameters);
+    if(!balance) return false;
     std::vector<std::vector<std::shared_ptr<ik_constraint::IKConstraint> > > levels(4);
+    levels[0].push_back(balance);
+    if(state == IKState::ATTACH_FIXED) {
+      // On touchdown the supported object's mass leaves the robot COM.
+      // Enforce balance on both sides of that load change, including when
+      // this node already satisfies the goal and no next IK phase is run.
+      std::shared_ptr<ik_constraint_sp::SPConstraint> finalBalance = this->createSPConstraint(postState,parameters);
+      if(!finalBalance) return false;
+      if(finalBalance->getCOMModels() != balance->getCOMModels()) levels[0].push_back(finalBalance);
+    }
     for(std::size_t i = 0; i < parameters.constraints.size(); ++i)
       if(!skipCollision(parameters.constraints[i],supportState,moveContact,state)) levels[0].push_back(parameters.constraints[i]);
     for(std::size_t i = 0; i < supportState.contacts.size(); ++i) {
@@ -123,27 +149,42 @@ namespace graph_locomanip_planner {
   bool ContactPlanner::checkTransitionImpl(const ContactState& preState, ContactState& postState, const GLMPParam& parameters) {
     const std::vector<std::shared_ptr<pinocchio::Model> > models = parameters.getModels();
     if(preState.frame.size() != models.size()) throw std::invalid_argument("ContactPlanner: invalid state frame");
+    if(!this->checkObjectFeasibility(preState,parameters) || !this->checkObjectFeasibility(postState,parameters)) return false;
     for(std::size_t i = 0; i < models.size(); ++i)
       if(preState.frame[i].size() != models[i]->nq) throw std::invalid_argument("ContactPlanner: invalid configuration size");
     std::vector<Eigen::VectorXd> configurations = preState.frame;
+    ContactState supportState = preState;
+    std::vector<std::shared_ptr<pinocchio::Data> > data = ik_constraint::IKConstraint::createDataVector(models);
+    for(std::size_t i = 0; i < models.size(); ++i) pinocchio::forwardKinematics(*models[i],*data[i],configurations[i]);
+    for(std::size_t i = 0; i < supportState.contacts.size(); ++i) {
+      fixContactYaw(supportState.contacts[i],models,data);
+      for(std::size_t j = 0; j < postState.contacts.size(); ++j) {
+        if(postState.contacts[j] == supportState.contacts[i]) {
+          postState.contacts[j].yaw = supportState.contacts[i].yaw;
+          postState.contacts[j].yawFixed = true;
+        }
+      }
+    }
     postState.transition.clear();
     if(postState.contacts.size() == preState.contacts.size()+1) {
       Contact& move = postState.contacts.back();
-      if(!this->solveContactIK(preState,move,postState,IKState::ATTACH_PRE,configurations,parameters) ||
-         !this->solveContactIK(preState,move,postState,IKState::ATTACH_FIXED,configurations,parameters)) return false;
+      if(!this->solveContactIK(supportState,move,postState,IKState::ATTACH_PRE,configurations,parameters) ||
+         !this->solveContactIK(supportState,move,postState,IKState::ATTACH_FIXED,configurations,parameters)) return false;
     } else if(postState.contacts.size()+1 == preState.contacts.size()) {
       Contact move; bool found = false;
-      for(std::size_t i = 0; i < preState.contacts.size(); ++i) {
-        if(std::find(postState.contacts.begin(),postState.contacts.end(),preState.contacts[i]) == postState.contacts.end()) {
-          move = preState.contacts[i]; found = true; break;
+      for(std::size_t i = 0; i < supportState.contacts.size(); ++i) {
+        if(std::find(postState.contacts.begin(),postState.contacts.end(),supportState.contacts[i]) == postState.contacts.end()) {
+          move = supportState.contacts[i]; found = true; break;
         }
       }
       if(!found || !this->solveContactIK(postState,move,postState,IKState::DETACH_FIXED,configurations,parameters)) return false;
     } else if(preState == postState) {
       Contact noMove;
-      if(!this->solveContactIK(preState,noMove,postState,IKState::SLIDE,configurations,parameters)) return false;
+      if(!this->solveContactIK(supportState,noMove,postState,IKState::SLIDE,configurations,parameters)) return false;
     } else return false;
     postState.frame = configurations;
+    for(std::size_t i = 0; i < models.size(); ++i) pinocchio::forwardKinematics(*models[i],*data[i],configurations[i]);
+    for(std::size_t i = 0; i < postState.contacts.size(); ++i) fixContactYaw(postState.contacts[i],models,data);
     return true;
   }
   void generateCandidateMarkers(mujoco_viewer::Viewer& viewer,
@@ -164,8 +205,13 @@ namespace graph_locomanip_planner {
   }
 }
 std::ostream& operator<<(std::ostream& stream, const graph_locomanip_planner::ContactState& state) {
-  for(std::size_t i = 0; i < state.contacts.size(); ++i)
-    stream << state.contacts[i].c1.bodyName << "/" << state.contacts[i].c1.linkName << " -> " <<
-      state.contacts[i].c2.bodyName << "/" << state.contacts[i].c2.linkName << " at " << state.contacts[i].c2.localPose.translation().transpose() << '\n';
+  for(std::size_t i = 0; i < state.contacts.size(); ++i) {
+    const graph_locomanip_planner::Contact& contact = state.contacts[i];
+    stream << contact.c1.bodyName << "/" << contact.c1.linkName;
+    if(!contact.c1.name.empty()) stream << "[" << contact.c1.name << "]";
+    stream << " -> " << contact.c2.bodyName << "/" << contact.c2.linkName;
+    if(!contact.c2.name.empty()) stream << "[" << contact.c2.name << "]";
+    stream << " at " << contact.c2.localPose.translation().transpose() << '\n';
+  }
   return stream;
 }

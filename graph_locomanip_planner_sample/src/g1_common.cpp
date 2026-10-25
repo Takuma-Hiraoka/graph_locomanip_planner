@@ -6,6 +6,7 @@
 #include <pinocchio_model_builder/pinocchio_model_builder.h>
 #include <pinocchio/algorithm/joint-configuration.hpp>
 #include <pinocchio/algorithm/kinematics.hpp>
+#include <pinocchio/algorithm/center-of-mass.hpp>
 #include <stdexcept>
 
 namespace graph_locomanip_planner_sample {
@@ -70,6 +71,8 @@ namespace graph_locomanip_planner_sample {
         std::make_shared<graph_locomanip_planner::ContactCandidate>("G1",sides[side]+"_ankle_roll_link",
           pinocchio::SE3(Eigen::Matrix3d::Identity(),Eigen::Vector3d(0.03,0,-0.035)),false);
       param.contactDynamicCandidates.push_back(leg);
+      leg->supportPolygon = {Eigen::Vector2d(-0.10,-0.045),Eigen::Vector2d(-0.10,0.045),
+        Eigen::Vector2d(0.10,0.045),Eigen::Vector2d(0.10,-0.045)};
       const pinocchio::SE3 pose = data.oMi[model->getJointId(sides[side]+"_ankle_roll_joint")] * leg->localPose;
       graph_locomanip_planner::ContactCandidate floor("floor","floor",pose);
       param.currentContactState->contacts.push_back(graph_locomanip_planner::Contact(*leg,floor));
@@ -79,6 +82,7 @@ namespace graph_locomanip_planner_sample {
       hand->weight.tail<3>() = Eigen::Vector3d(1,1,0);
       param.contactDynamicCandidates.push_back(hand);
     }
+    param.spConstraint->setModels({model});
     for(pinocchio::JointIndex id = 1; id < model->njoints; ++id) {
       if(model->nqs[id] != 1 || model->nvs[id] != 1) continue;
       std::shared_ptr<ik_constraint::JointLimitConstraint> limit = std::make_shared<ik_constraint::JointLimitConstraint>(model);
@@ -88,7 +92,8 @@ namespace graph_locomanip_planner_sample {
       param.nominals.push_back(nominal);
     }
   }
-  void setViewerConfiguration(mujoco_viewer::Viewer& viewer, const pinocchio::Model& model, const Eigen::VectorXd& q) {
+  void setViewerConfiguration(mujoco_viewer::Viewer& viewer, const pinocchio::Model& model, const Eigen::VectorXd& q,
+    const std::string& rootJointName) {
     // MuJoCo reads the original URDF and keeps the finger joints. Match the
     // zero angles at which pinocchio_model_builder fixes those joints.
     for(int id = 0; id < viewer.model()->njnt; ++id) {
@@ -103,9 +108,9 @@ namespace graph_locomanip_planner_sample {
     for(pinocchio::JointIndex id = 1; id < model.njoints; ++id) {
       const Eigen::Index qi = model.idx_qs[id];
       if(model.nqs[id] == 7 && model.nvs[id] == 6) {
-        int joint = -1;
-        for(int j = 0; j < viewer.model()->njnt; ++j) if(viewer.model()->jnt_type[j] == mjJNT_FREE) { joint = j; break; }
-        if(joint < 0) throw std::runtime_error("G1 viewer free joint missing");
+        const int joint = mj_name2id(viewer.model(),mjOBJ_JOINT,rootJointName.c_str());
+        if(joint < 0 || viewer.model()->jnt_type[joint] != mjJNT_FREE)
+          throw std::runtime_error("Viewer free joint missing: " + rootJointName);
         const int address = viewer.model()->jnt_qposadr[joint];
         for(int i = 0; i < 3; ++i) viewer.data()->qpos[address+i] = q[qi+i];
         viewer.data()->qpos[address+3] = q[qi+6];
@@ -117,5 +122,24 @@ namespace graph_locomanip_planner_sample {
       }
     }
     mj_forward(viewer.model(),viewer.data());
+  }
+  void setViewerConfigurations(mujoco_viewer::Viewer& viewer,
+    const std::vector<std::shared_ptr<pinocchio::Model> >& models, const std::vector<Eigen::VectorXd>& configurations) {
+    if(models.size() != configurations.size()) throw std::invalid_argument("Viewer model/configuration size mismatch");
+    for(std::size_t i = 0; i < models.size(); ++i)
+      setViewerConfiguration(viewer,*models[i],configurations[i],i == 0 ? "root_joint" : models[i]->name+"_base_joint");
+  }
+  void drawSupport(mujoco_viewer::Viewer& viewer, const graph_locomanip_planner::ContactPlanner& planner,
+    const graph_locomanip_planner::ContactState& state, const std::vector<Eigen::VectorXd>& configurations) {
+    const std::vector<std::shared_ptr<pinocchio::Model> > models = planner.param.getModels();
+    std::shared_ptr<ik_constraint_sp::SPConstraint> support = planner.createSPConstraint(state,planner.param);
+    if(!support) return;
+    std::vector<std::shared_ptr<pinocchio::Data> > data = ik_constraint::IKConstraint::createDataVector(models);
+    for(std::size_t i = 0; i < models.size(); ++i) {
+      pinocchio::forwardKinematics(*models[i],*data[i],configurations[i]);
+      pinocchio::centerOfMass(*models[i],*data[i],configurations[i]);
+    }
+    support->updateBounds(support->getConstDataVector(models,data));
+    support->drawOn(viewer);
   }
 }

@@ -4,7 +4,7 @@
 #include <iostream>
 #include <thread>
 
-int main() {
+int main(int argc, char** argv) {
   try {
   graph_locomanip_planner::ContactPlanner planner;
   graph_locomanip_planner_sample::SampleModel sample;
@@ -14,6 +14,12 @@ int main() {
   planner.debugLevel() = 1;
   planner.threads() = 30;
   planner.maxExtendNum() = 200;
+  if(argc > 1 && std::string(argv[1]) == "--headless") {
+    const bool solved = planner.solve();
+    std::vector<graph_locomanip_planner::ContactState> path; planner.goalPath(path);
+    std::cout << "Contact planning " << (solved ? "succeeded" : "failed") << ": " << path.size() << " states" << std::endl;
+    return solved ? 0 : 1;
+  }
   std::shared_ptr<mujoco_viewer::Viewer> viewer = std::make_shared<mujoco_viewer::Viewer>();
   planner.param.viewer = viewer; viewer->viewModel(sample.viewerModel);
   viewer->option()->geomgroup[0] = 1; viewer->option()->geomgroup[1] = 1;
@@ -23,6 +29,7 @@ int main() {
   while(result.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) {
     if(viewer->isOpen()) {
       viewer->updateScene();
+      graph_locomanip_planner_sample::drawSupport(*viewer,planner,*planner.param.currentContactState,planner.param.currentContactState->frame);
       graph_locomanip_planner::generateCandidateMarkers(*viewer,models,
         planner.param.currentContactState->frame,planner.param.contactStaticCandidates);
       viewer->drawScene(); viewer->pollEvents();
@@ -39,6 +46,7 @@ int main() {
       for(std::size_t frame = 0; frame < count && viewer->isOpen(); ++frame) {
         graph_locomanip_planner_sample::setViewerConfiguration(*viewer,*planner.param.robot,path[state].transition[frame][0]);
         viewer->updateScene();
+        graph_locomanip_planner_sample::drawSupport(*viewer,planner,path[state],path[state].transition[frame]);
         graph_locomanip_planner::generateCandidateMarkers(*viewer,models,path[state].transition[frame],planner.param.contactStaticCandidates);
         viewer->drawScene(); viewer->pollEvents();
         std::this_thread::sleep_for(std::chrono::milliseconds(20));

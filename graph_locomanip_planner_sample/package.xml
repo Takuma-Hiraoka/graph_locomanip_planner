@@ -11,6 +11,9 @@
   <depend>ik_constraint</depend>
   <depend>ik_constraint_esdf</depend>
   <depend>ik_constraint_vclip</depend>
+  <depend>ik_constraint_sp</depend>
+  <depend>pinocchio_primitive_models</depend>
+  <depend>pinocchio_mujoco_converter</depend>
   <depend>mujoco_esdf</depend>
   <depend>mujoco_viewer</depend>
   <depend>pinocchio</depend>

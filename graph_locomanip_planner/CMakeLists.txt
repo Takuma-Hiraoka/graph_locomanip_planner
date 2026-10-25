@@ -12,6 +12,7 @@ set(dependencies
   graph_search
   ik_constraint
   ik_constraint_esdf
+  ik_constraint_sp
   global_inverse_kinematics_solver
   prioritized_inverse_kinematics_solver
   mujoco_viewer
@@ -23,6 +24,7 @@ endforeach()
 
 add_library(${PROJECT_NAME}
   src/contact_state.cpp
+  src/object_support.cpp
   src/graph_locomanip_planner.cpp
   src/util.cpp
 )

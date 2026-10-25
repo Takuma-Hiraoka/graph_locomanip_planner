@@ -12,6 +12,9 @@ set(dependencies
   ik_constraint
   ik_constraint_esdf
   ik_constraint_vclip
+  ik_constraint_sp
+  pinocchio_primitive_models
+  pinocchio_mujoco_converter
   mujoco_esdf
   mujoco_viewer
   pinocchio
@@ -19,7 +22,7 @@ set(dependencies
 foreach(dependency ${dependencies})
   find_package(${dependency} REQUIRED)
 endforeach()
-add_library(${PROJECT_NAME}_common src/g1_common.cpp src/world_common.cpp)
+add_library(${PROJECT_NAME}_common src/g1_common.cpp src/world_common.cpp src/manipulation_world.cpp)
 target_include_directories(${PROJECT_NAME}_common PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
@@ -28,9 +31,12 @@ target_link_libraries(${PROJECT_NAME}_common pinocchio::pinocchio)
 add_executable(sample0 src/sample0.cpp)
 ament_target_dependencies(sample0 ${dependencies})
 target_link_libraries(sample0 ${PROJECT_NAME}_common pinocchio::pinocchio)
+add_executable(sample1 src/sample1.cpp)
+ament_target_dependencies(sample1 ${dependencies})
+target_link_libraries(sample1 ${PROJECT_NAME}_common pinocchio::pinocchio)
 install(TARGETS ${PROJECT_NAME}_common EXPORT export_${PROJECT_NAME}
   ARCHIVE DESTINATION lib LIBRARY DESTINATION lib RUNTIME DESTINATION bin)
-install(TARGETS sample0 DESTINATION lib/${PROJECT_NAME})
+install(TARGETS sample0 sample1 DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY include/ DESTINATION include FILES_MATCHING PATTERN "*.h")
 install(DIRECTORY unitree_ros DESTINATION share/${PROJECT_NAME})
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)

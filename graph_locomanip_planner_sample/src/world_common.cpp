@@ -53,6 +53,12 @@ namespace graph_locomanip_planner_sample {
       param.contactStaticCandidates.push_back(candidate);
       param.goalContactState->contacts.push_back(graph_locomanip_planner::Contact(dynamic,*candidate));
     }
+    addRobotCollisionConstraints(param,sample);
+    sample.viewerModel = std::shared_ptr<mjModel>(mj_compile(spec.get(),nullptr),mj_deleteModel);
+    if(!sample.viewerModel) throw std::runtime_error(mjs_getError(spec.get()));
+  }
+  void addRobotCollisionConstraints(graph_locomanip_planner::ContactPlanner::GLMPParam& param, SampleModel& sample) {
+    const std::shared_ptr<pinocchio::Model>& model = param.robot;
     std::set<pinocchio::JointIndex> ids;
     for(std::size_t i = 0; i < sample.robotGeometry->geometryObjects.size(); ++i) {
       const pinocchio::GeometryObject& geometry = sample.robotGeometry->geometryObjects[i];
@@ -80,7 +86,5 @@ namespace graph_locomanip_planner_sample {
         param.constraints.push_back(collision);
       }
     }
-    sample.viewerModel = std::shared_ptr<mjModel>(mj_compile(spec.get(),nullptr),mj_deleteModel);
-    if(!sample.viewerModel) throw std::runtime_error(mjs_getError(spec.get()));
   }
 }

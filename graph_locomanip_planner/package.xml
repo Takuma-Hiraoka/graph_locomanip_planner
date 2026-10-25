@@ -10,6 +10,7 @@
   <depend>graph_search</depend>
   <depend>ik_constraint</depend>
   <depend>ik_constraint_esdf</depend>
+  <depend>ik_constraint_sp</depend>
   <depend>global_inverse_kinematics_solver</depend>
   <depend>prioritized_inverse_kinematics_solver</depend>
   <depend>mujoco_viewer</depend>
