@@ -29,7 +29,8 @@ namespace graph_locomanip_planner {
       // Exactly one entry for each object, matched by the model shared pointer.
       std::vector<ObjectContactRequirement> objectContactRequirements;
       // Settings template; each IK phase builds a private copy with current
-      // robot/static support polygons and robot + unsupported grasped objects.
+      // support polygons (static environment or grounded objects) and
+      // robot + unsupported grasped objects.
       std::shared_ptr<ik_constraint_sp::SPConstraint> spConstraint;
       // IK/GIK configurations and ContactState frames use [robot, object...].
       std::vector<std::shared_ptr<pinocchio::Model> > getModels() const;

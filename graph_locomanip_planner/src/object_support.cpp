@@ -72,9 +72,22 @@ namespace graph_locomanip_planner {
     for(std::size_t i = 0; i < supportState.contacts.size(); ++i) {
       const Contact& contact = supportState.contacts[i];
       const ContactCandidate* robotSite = nullptr;
-      if(contact.c1.isStatic && !contact.c2.isStatic && contact.c2.bodyName == parameters.robot->name) robotSite = &contact.c2;
-      if(contact.c2.isStatic && !contact.c1.isStatic && contact.c1.bodyName == parameters.robot->name) robotSite = &contact.c1;
+      const ContactCandidate* supportSite = nullptr;
+      if(!contact.c1.isStatic && contact.c1.bodyName == parameters.robot->name) {
+        robotSite = &contact.c1; supportSite = &contact.c2;
+      } else if(!contact.c2.isStatic && contact.c2.bodyName == parameters.robot->name) {
+        robotSite = &contact.c2; supportSite = &contact.c1;
+      }
       if(!robotSite || robotSite->supportPolygon.empty()) continue;
+      bool grounded = supportSite->isStatic;
+      if(!grounded) {
+        for(std::size_t j = 0; j < parameters.objectContactRequirements.size(); ++j) {
+          const ObjectContactRequirement& requirement = parameters.objectContactRequirements[j];
+          if(requirement.model->name == supportSite->bodyName && isObjectStaticallySupported(supportState,requirement)) grounded = true;
+        }
+      }
+      // A grasped, airborne object is not an external support for its carrier.
+      if(!grounded) continue;
       ik_constraint_sp::SupportPolygon polygon;
       polygon.model = parameters.robot;
       polygon.jointId = getJointId(*robotSite,*parameters.robot);

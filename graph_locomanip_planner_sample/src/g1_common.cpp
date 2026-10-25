@@ -11,7 +11,8 @@
 
 namespace graph_locomanip_planner_sample {
   void generateG1(graph_locomanip_planner::ContactPlanner::GLMPParam& param, SampleModel& sample) {
-    sample.robotDirectory = ament_index_cpp::get_package_share_directory("graph_locomanip_planner_sample") + "/unitree_ros/robots/g1_description";
+    if(sample.robotDirectory.empty())
+      sample.robotDirectory = ament_index_cpp::get_package_share_directory("graph_locomanip_planner_sample") + "/unitree_ros/robots/g1_description";
     sample.robotUrdf = sample.robotDirectory + "/g1_29dof_rev_1_0_with_inspire_hand_DFQ.urdf";
     const std::string& urdf = sample.robotUrdf;
     const std::vector<std::string> fingerJointNames{
